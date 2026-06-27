@@ -684,14 +684,17 @@ function renderKanbanDiplomas() {
     `;
   }).join("");
 
-  const total = items.length;
+  // El total de referencia para el % excluye "No corresponde": esos diplomas
+  // nunca se iban a entregar, así que no deben contarse como "pendientes".
+  const itemsQueCorresponden = items.filter((i) => i.diplomaCategoria.id !== "no_corresponde");
+  const totalQueCorresponde = itemsQueCorresponden.length;
   const entregados = items.filter((i) => i.diplomaCategoria.id === "entregado").length;
-  const pct = total ? Math.round((entregados / total) * 100) : 0;
+  const pct = totalQueCorresponde ? Math.round((entregados / totalQueCorresponde) * 100) : 0;
   const resumenEl = document.getElementById("diplomas-resumen");
   if (resumenEl) {
-    resumenEl.textContent = total
-      ? `${entregados} de ${total} diplomas entregados (${pct}%)`
-      : "No hay declaraciones aprobadas con estos filtros.";
+    resumenEl.textContent = totalQueCorresponde
+      ? `${entregados} de ${totalQueCorresponde} diplomas entregados (${pct}%) — sin contar los que no corresponden`
+      : "No hay declaraciones aprobadas con diploma pendiente o entregado, con estos filtros.";
   }
 }
 

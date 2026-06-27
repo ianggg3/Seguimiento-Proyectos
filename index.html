@@ -121,6 +121,25 @@
     flex:1; height:1px; background:var(--line);
   }
 
+  /* ---------- Selector de vista ---------- */
+  .vista-selector{
+    display:flex; gap:8px; margin-bottom:28px;
+  }
+  .vista-btn{
+    font-family:'Inter',sans-serif; font-weight:600; font-size:13.5px;
+    padding:9px 18px; border-radius:7px; cursor:pointer;
+    border:1px solid var(--line); background:#fff; color:var(--ink-soft);
+    transition:all 0.15s ease;
+  }
+  .vista-btn:hover{ border-color:var(--navy); color:var(--navy); }
+  .vista-btn.active{ background:var(--navy); color:#fff; border-color:var(--navy); }
+
+  .diplomas-resumen{
+    font-size:13.5px; color:var(--ink-soft); margin-bottom:16px;
+    background:var(--paper-dim); border:1px solid var(--line);
+    border-radius:7px; padding:10px 14px; display:inline-block;
+  }
+
   /* ---------- Overview stats ---------- */
   .overview{
     display:grid;
@@ -198,6 +217,9 @@
     grid-template-columns: repeat(4, minmax(260px,1fr));
     gap:14px;
     overflow-x:auto;
+  }
+  .kanban.kanban-3col{
+    grid-template-columns: repeat(3, minmax(260px,1fr));
   }
   @media (max-width:900px){ .kanban{ grid-template-columns:1fr; } }
 
@@ -364,7 +386,7 @@
   <div class="top-inner">
     <div class="brand">
       <span class="stamp">Mesa de Entradas</span>
-      <h1>Seguimiento de Proyectos · Emmanuel Ferrario</h1>
+      <h1>IAN · Seguimiento de Proyectos</h1>
     </div>
     <div class="top-meta">
       <span id="sync-status"><span class="sync-dot loading" id="sync-dot"></span><span id="sync-text">Conectando…</span></span>
@@ -386,42 +408,69 @@
 
     <div id="error-zone"></div>
 
-    <div class="section-label">
-      <span class="num">01</span>
-      <h2>Panorama general</h2>
-      <span class="rule"></span>
-    </div>
-    <div class="overview" id="overview-stats"></div>
+    <div class="vista-selector" id="vista-selector"></div>
 
-    <div class="section-label">
-      <span class="num">02</span>
-      <h2>Filtros</h2>
-      <span class="rule"></span>
-    </div>
-    <div class="filters" id="filters-zone"></div>
+    <div id="vista-seguimiento">
 
-    <div class="section-label">
-      <span class="num">03</span>
-      <h2>Seguimiento por etapas</h2>
-      <span class="rule"></span>
-    </div>
-    <div class="kanban-wrap">
-      <div class="kanban" id="kanban-board"></div>
-    </div>
-
-    <div class="section-label">
-      <span class="num">04</span>
-      <h2>Detalle completo</h2>
-      <span class="rule"></span>
-    </div>
-    <div class="sheet-tabs" id="sheet-tabs"></div>
-    <div class="table-wrap">
-      <div class="table-scroll">
-        <table id="data-table">
-          <thead id="table-head"></thead>
-          <tbody id="table-body"></tbody>
-        </table>
+      <div class="section-label">
+        <span class="num">01</span>
+        <h2>Panorama general</h2>
+        <span class="rule"></span>
       </div>
+      <div class="overview" id="overview-stats"></div>
+
+      <div class="section-label">
+        <span class="num">02</span>
+        <h2>Filtros</h2>
+        <span class="rule"></span>
+      </div>
+      <div class="filters" id="filters-zone"></div>
+
+      <div class="section-label">
+        <span class="num">03</span>
+        <h2>Seguimiento por etapas</h2>
+        <span class="rule"></span>
+      </div>
+      <div class="kanban-wrap">
+        <div class="kanban" id="kanban-board"></div>
+      </div>
+
+      <div class="section-label">
+        <span class="num">04</span>
+        <h2>Detalle completo</h2>
+        <span class="rule"></span>
+      </div>
+      <div class="sheet-tabs" id="sheet-tabs"></div>
+      <div class="table-wrap">
+        <div class="table-scroll">
+          <table id="data-table">
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <div id="vista-diplomas" style="display:none;">
+
+      <div class="section-label">
+        <span class="num">01</span>
+        <h2>Filtros</h2>
+        <span class="rule"></span>
+      </div>
+      <div class="filters" id="filters-zone-diplomas"></div>
+
+      <div class="section-label">
+        <span class="num">02</span>
+        <h2>Entrega de diplomas — Declaraciones de Interés aprobadas</h2>
+        <span class="rule"></span>
+      </div>
+      <div class="diplomas-resumen" id="diplomas-resumen"></div>
+      <div class="kanban-wrap">
+        <div class="kanban kanban-3col" id="kanban-diplomas-board"></div>
+      </div>
+
     </div>
 
   </div>

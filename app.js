@@ -17,7 +17,33 @@ const COL = {
   estadoParlamentario: "¿Estado parlamentario?",
   aprobado: "¿Se aprobó en el recinto?",
   eje: "¿Con qué eje de trabajo se vincula?",
+  diploma: "¿Pedimos el diploma?",
 };
+
+// Las 3 categorías simples para agrupar el campo "¿Pedimos el diploma?",
+// que en la planilla real tiene muchos valores parecidos pero no idénticos.
+const DIPLOMA_CATEGORIAS = [
+  { id: "entregado", nombre: "Entregado", color: "#6B7A4F" },
+  { id: "pendiente", nombre: "Pendiente de entrega", color: "#C08A2E" },
+  { id: "no_corresponde", nombre: "No corresponde", color: "#9C8B5E" },
+];
+
+// Mapeo de cada valor real (normalizado, sin tildes/mayúsculas) a su categoría.
+const DIPLOMA_MAPEO = {
+  "entregado": "entregado",
+  "no se entrega": "no_corresponde",
+  "no pedir": "no_corresponde",
+  "en la oficina": "pendiente",
+  "en protocolo": "pendiente",
+  "oficina": "pendiente",
+  "": "pendiente",
+};
+
+function getDiplomaCategoria(row) {
+  const v = normaliza(row[COL.diploma]);
+  const id = DIPLOMA_MAPEO.hasOwnProperty(v) ? DIPLOMA_MAPEO[v] : "pendiente";
+  return DIPLOMA_CATEGORIAS.find((c) => c.id === id);
+}
 
 // Las 4 etapas del Kanban, en orden, con su color y la lógica de detección.
 // "match" decide a qué etapa pertenece una fila. Se evalúa de abajo hacia
@@ -72,10 +98,16 @@ const HOJAS_CONFIG = {
    ========================================================================= */
 
 let RAW_DATA = null;       // lo que llega del Apps Script
+let VISTA_ACTIVA = "seguimiento"; // "seguimiento" | "diplomas"
 let FILTROS = {
   hoja: "TODAS",
   eje: "TODOS",
-  etapa: "TODAS",
+  etapas: [],         // array vacío = todas. Ej: ["redactado","aprobado"]
+  busqueda: "",
+};
+let FILTROS_DIPLOMAS = {
+  eje: "TODOS",
+  diploma: [],        // array vacío = todas las categorías
   busqueda: "",
 };
 let autoRefreshTimer = null;
@@ -206,12 +238,46 @@ function getItemsFiltrados() {
   let items = getAllItems();
   if (FILTROS.hoja !== "TODAS") items = items.filter((i) => i.sheet === FILTROS.hoja);
   if (FILTROS.eje !== "TODOS") items = items.filter((i) => i.eje === FILTROS.eje);
-  if (FILTROS.etapa !== "TODAS") items = items.filter((i) => i.etapa.id === FILTROS.etapa);
+  if (FILTROS.etapas.length > 0) items = items.filter((i) => FILTROS.etapas.includes(i.etapa.id));
   if (FILTROS.busqueda.trim() !== "") {
     const q = normaliza(FILTROS.busqueda);
     items = items.filter((i) => normaliza(i.titulo).includes(q));
   }
   return items;
+}
+
+// Lista base para la pestaña de Diplomas: solo Declaraciones de Interés
+// que ya están Aprobadas (porque el diploma solo aplica a esos casos).
+function getAllItemsDiplomas() {
+  if (!RAW_DATA) return [];
+  const hoja = RAW_DATA["DECLARACIONES DE INTERÉS"];
+  if (!hoja) return [];
+  return hoja.rows
+    .filter((row) => normaliza(row[COL.aprobado]) === "aprobado")
+    .map((row) => ({
+      sheet: "DECLARACIONES DE INTERÉS",
+      titulo: getTitulo(row, "DECLARACIONES DE INTERÉS"),
+      eje: getEje(row),
+      diplomaCategoria: getDiplomaCategoria(row),
+      row: row,
+    }));
+}
+
+function getItemsDiplomasFiltrados() {
+  let items = getAllItemsDiplomas();
+  if (FILTROS_DIPLOMAS.eje !== "TODOS") items = items.filter((i) => i.eje === FILTROS_DIPLOMAS.eje);
+  if (FILTROS_DIPLOMAS.diploma.length > 0) items = items.filter((i) => FILTROS_DIPLOMAS.diploma.includes(i.diplomaCategoria.id));
+  if (FILTROS_DIPLOMAS.busqueda.trim() !== "") {
+    const q = normaliza(FILTROS_DIPLOMAS.busqueda);
+    items = items.filter((i) => normaliza(i.titulo).includes(q));
+  }
+  return items;
+}
+
+function getEjesUnicosDiplomas() {
+  const set = new Set();
+  getAllItemsDiplomas().forEach((i) => set.add(i.eje));
+  return Array.from(set).filter(Boolean).sort();
 }
 
 function getEjesUnicos() {
@@ -310,11 +376,13 @@ function renderFiltros() {
         ${ejes.map((e) => `<option value="${e.replace(/"/g,'&quot;')}" ${FILTROS.eje===e?"selected":""}>${e}</option>`).join("")}
       </select>
     </div>
-    <div class="filter-group" style="min-width:280px;">
-      <label>Etapa</label>
+    <div class="filter-group" style="min-width:320px;">
+      <label>Etapa <span style="text-transform:none; font-weight:400; opacity:0.7;">(elegí una o varias)</span></label>
       <div class="filter-pills" id="f-etapas">
-        <span class="pill ${FILTROS.etapa==='TODAS'?'active':''}" data-etapa="TODAS">Todas</span>
-        ${ETAPAS.map((e) => `<span class="pill ${FILTROS.etapa===e.id?'active':''}" data-etapa="${e.id}" style="${FILTROS.etapa===e.id?`background:${e.color};border-color:${e.color};`:''}">${e.nombre}</span>`).join("")}
+        ${ETAPAS.map((e) => {
+          const activa = FILTROS.etapas.includes(e.id);
+          return `<span class="pill ${activa?'active':''}" data-etapa="${e.id}" style="${activa?`background:${e.color};border-color:${e.color};`:''}">${e.nombre}</span>`;
+        }).join("")}
       </div>
     </div>
     <button class="clear-filters" id="f-clear">Limpiar filtros</button>
@@ -335,12 +403,18 @@ function renderFiltros() {
   });
   document.querySelectorAll("#f-etapas .pill").forEach((pill) => {
     pill.addEventListener("click", () => {
-      FILTROS.etapa = pill.dataset.etapa;
+      const id = pill.dataset.etapa;
+      const idx = FILTROS.etapas.indexOf(id);
+      if (idx === -1) {
+        FILTROS.etapas.push(id); // la agrego a la selección
+      } else {
+        FILTROS.etapas.splice(idx, 1); // la saco de la selección
+      }
       renderFiltros(); renderOverview(); renderKanban(); renderTabla();
     });
   });
   document.getElementById("f-clear").addEventListener("click", () => {
-    FILTROS = { hoja: "TODAS", eje: "TODOS", etapa: "TODAS", busqueda: "" };
+    FILTROS = { hoja: "TODAS", eje: "TODOS", etapas: [], busqueda: "" };
     renderAll();
   });
 }
@@ -515,15 +589,139 @@ function statusChip(etapa) {
 }
 
 /* =========================================================================
+   VISTA: selector (Seguimiento / Diplomas)
+   ========================================================================= */
+
+function renderSelectorVista() {
+  const el = document.getElementById("vista-selector");
+  if (!el) return;
+  el.innerHTML = `
+    <button class="vista-btn ${VISTA_ACTIVA==='seguimiento'?'active':''}" data-vista="seguimiento">Seguimiento</button>
+    <button class="vista-btn ${VISTA_ACTIVA==='diplomas'?'active':''}" data-vista="diplomas">Diplomas</button>
+  `;
+  document.querySelectorAll(".vista-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      VISTA_ACTIVA = btn.dataset.vista;
+      renderAll();
+    });
+  });
+
+  document.getElementById("vista-seguimiento").style.display = VISTA_ACTIVA === "seguimiento" ? "block" : "none";
+  document.getElementById("vista-diplomas").style.display = VISTA_ACTIVA === "diplomas" ? "block" : "none";
+}
+
+/* =========================================================================
+   RENDER: pestaña de Diplomas
+   ========================================================================= */
+
+function renderFiltrosDiplomas() {
+  const ejes = getEjesUnicosDiplomas();
+  const html = `
+    <div class="filter-group" style="flex:2; min-width:220px;">
+      <label>Buscar declaración</label>
+      <input type="text" id="fd-busqueda" placeholder="Escribí un nombre o expediente…" value="${FILTROS_DIPLOMAS.busqueda.replace(/"/g,'&quot;')}">
+    </div>
+    <div class="filter-group">
+      <label>Eje de trabajo</label>
+      <select id="fd-eje">
+        <option value="TODOS">Todos los ejes</option>
+        ${ejes.map((e) => `<option value="${e.replace(/"/g,'&quot;')}" ${FILTROS_DIPLOMAS.eje===e?"selected":""}>${e}</option>`).join("")}
+      </select>
+    </div>
+    <div class="filter-group" style="min-width:320px;">
+      <label>Estado del diploma <span style="text-transform:none; font-weight:400; opacity:0.7;">(elegí uno o varios)</span></label>
+      <div class="filter-pills" id="fd-categorias">
+        ${DIPLOMA_CATEGORIAS.map((c) => {
+          const activa = FILTROS_DIPLOMAS.diploma.includes(c.id);
+          return `<span class="pill ${activa?'active':''}" data-cat="${c.id}" style="${activa?`background:${c.color};border-color:${c.color};`:''}">${c.nombre}</span>`;
+        }).join("")}
+      </div>
+    </div>
+    <button class="clear-filters" id="fd-clear">Limpiar filtros</button>
+  `;
+  document.getElementById("filters-zone-diplomas").innerHTML = html;
+
+  document.getElementById("fd-busqueda").addEventListener("input", (e) => {
+    FILTROS_DIPLOMAS.busqueda = e.target.value;
+    renderKanbanDiplomas();
+  });
+  document.getElementById("fd-eje").addEventListener("change", (e) => {
+    FILTROS_DIPLOMAS.eje = e.target.value;
+    renderKanbanDiplomas();
+  });
+  document.querySelectorAll("#fd-categorias .pill").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const id = pill.dataset.cat;
+      const idx = FILTROS_DIPLOMAS.diploma.indexOf(id);
+      if (idx === -1) FILTROS_DIPLOMAS.diploma.push(id);
+      else FILTROS_DIPLOMAS.diploma.splice(idx, 1);
+      renderFiltrosDiplomas(); renderKanbanDiplomas();
+    });
+  });
+  document.getElementById("fd-clear").addEventListener("click", () => {
+    FILTROS_DIPLOMAS = { eje: "TODOS", diploma: [], busqueda: "" };
+    renderFiltrosDiplomas(); renderKanbanDiplomas();
+  });
+}
+
+function renderKanbanDiplomas() {
+  const items = getItemsDiplomasFiltrados();
+  const board = document.getElementById("kanban-diplomas-board");
+  if (!board) return;
+
+  board.innerHTML = DIPLOMA_CATEGORIAS.map((cat) => {
+    const itemsCat = items.filter((i) => i.diplomaCategoria.id === cat.id);
+    return `
+      <div class="kcol" style="--kcolor:${cat.color}">
+        <div class="kcol-head">
+          <span class="title">${cat.nombre}</span>
+          <span class="count">${itemsCat.length}</span>
+        </div>
+        <div class="kcol-body">
+          ${itemsCat.length ? itemsCat.map((item) => renderCardDiploma(item)).join("") : `<div class="empty-state">Sin items</div>`}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  const total = items.length;
+  const entregados = items.filter((i) => i.diplomaCategoria.id === "entregado").length;
+  const pct = total ? Math.round((entregados / total) * 100) : 0;
+  const resumenEl = document.getElementById("diplomas-resumen");
+  if (resumenEl) {
+    resumenEl.textContent = total
+      ? `${entregados} de ${total} diplomas entregados (${pct}%)`
+      : "No hay declaraciones aprobadas con estos filtros.";
+  }
+}
+
+function renderCardDiploma(item) {
+  return `
+    <div class="kcard" style="cursor:default;">
+      <span class="title">${escapeHtml(item.titulo)}</span>
+      <div class="meta">
+        <span class="tag">${escapeHtml(item.eje)}</span>
+      </div>
+    </div>
+  `;
+}
+
+/* =========================================================================
    RENDER ALL
    ========================================================================= */
 
 function renderAll() {
-  renderOverview();
-  renderFiltros();
-  renderKanban();
-  renderSheetTabs();
-  renderTabla();
+  renderSelectorVista();
+  if (VISTA_ACTIVA === "seguimiento") {
+    renderOverview();
+    renderFiltros();
+    renderKanban();
+    renderSheetTabs();
+    renderTabla();
+  } else {
+    renderFiltrosDiplomas();
+    renderKanbanDiplomas();
+  }
 }
 
 function render() {

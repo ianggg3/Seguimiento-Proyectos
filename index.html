@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --paper:#F7F4EC;
@@ -138,6 +139,46 @@
     font-size:13.5px; color:var(--ink-soft); margin-bottom:16px;
     background:var(--paper-dim); border:1px solid var(--line);
     border-radius:7px; padding:10px 14px; display:inline-block;
+  }
+
+  /* ---------- Barra de exportación ---------- */
+  .export-bar{
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    margin-top:18px; padding:14px 16px;
+    background:var(--card); border:1px solid var(--line); border-radius:8px;
+  }
+  .export-checkbox{
+    display:flex; align-items:center; gap:7px;
+    font-size:13px; color:var(--ink-soft); cursor:pointer; user-select:none;
+  }
+  .export-checkbox input{ width:15px; height:15px; cursor:pointer; accent-color:var(--navy); }
+  .export-btn{
+    font-family:'Inter',sans-serif; font-weight:600; font-size:13px;
+    padding:8px 16px; border-radius:6px; cursor:pointer;
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+    display:flex; align-items:center; gap:7px;
+    transition:all 0.15s ease;
+  }
+  .export-btn:hover{ border-color:var(--navy); color:var(--navy); }
+  .export-btn svg{ width:14px; height:14px; }
+  .export-btn.excel:hover{ border-color:var(--olive); color:var(--olive); }
+  .export-btn.pdf:hover{ border-color:var(--brick); color:var(--brick); }
+
+  /* ---------- Impresión a PDF ---------- */
+  /* Por defecto, oculto; se activa solo cuando exportPDF() lo agrega al <body> */
+  #print-area{ display:none; }
+  @media print{
+    body *{ visibility:hidden; }
+    #print-area, #print-area *{ visibility:visible; }
+    #print-area{
+      display:block; position:absolute; top:0; left:0; width:100%;
+      padding:20px; background:#fff;
+    }
+    #print-area h1{ font-family:'Source Serif 4', serif; font-size:20px; margin-bottom:4px; }
+    #print-area .print-meta{ font-size:11px; color:#555; margin-bottom:16px; }
+    #print-area table{ width:100%; border-collapse:collapse; font-size:10.5px; }
+    #print-area th, #print-area td{ border:1px solid #ccc; padding:5px 7px; text-align:left; }
+    #print-area th{ background:#1E3A5F; color:#fff; }
   }
 
   /* ---------- Overview stats ---------- */
@@ -450,6 +491,8 @@
         </div>
       </div>
 
+      <div class="export-bar" id="export-bar-seguimiento"></div>
+
     </div>
 
     <div id="vista-diplomas" style="display:none;">
@@ -471,6 +514,8 @@
         <div class="kanban kanban-3col" id="kanban-diplomas-board"></div>
       </div>
 
+      <div class="export-bar" id="export-bar-diplomas"></div>
+
     </div>
 
   </div>
@@ -481,6 +526,7 @@
 </footer>
 
 <div class="toast" id="toast"></div>
+<div id="print-area"></div>
 
 <script src="app.js"></script>
 </body>

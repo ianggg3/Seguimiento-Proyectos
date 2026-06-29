@@ -18,7 +18,30 @@ const COL = {
   aprobado: "¿Se aprobó en el recinto?",
   eje: "¿Con qué eje de trabajo se vincula?",
   diploma: "¿Pedimos el diploma?",
+  fecha: "¿En qué fecha?",
 };
+
+// Valor especial para agrupar los proyectos sin año detectable.
+const SIN_FECHA = "Sin fecha";
+
+// Saca el año de un proyecto con esta prioridad:
+// 1) la columna de fecha real, si tiene un valor parseable
+// 2) el año dentro del número de expediente en el título (ej. "2431-D-2024")
+// 3) si no hay ninguno de los dos, "Sin fecha"
+function getAnio(row, titulo) {
+  const fechaRaw = row[COL.fecha];
+  if (fechaRaw) {
+    const fecha = new Date(fechaRaw);
+    if (!isNaN(fecha.getTime())) {
+      const anio = fecha.getFullYear();
+      if (anio > 1990 && anio < 2100) return String(anio);
+    }
+  }
+  // Buscamos un patrón de expediente tipo NNNN-D-AAAA o NNNN-P-AAAA en el título
+  const match = String(titulo || "").match(/\d+-[A-Za-z]-(\d{4})/);
+  if (match) return match[1];
+  return SIN_FECHA;
+}
 
 // Las 3 categorías simples para agrupar el campo "¿Pedimos el diploma?",
 // que en la planilla real tiene muchos valores parecidos pero no idénticos.
@@ -103,6 +126,7 @@ let FILTROS = {
   hoja: "TODAS",
   eje: "TODOS",
   etapas: [],         // array vacío = todas. Ej: ["redactado","aprobado"]
+  anios: [],          // array vacío = todos. Ej: ["2024","2025"]
   busqueda: "",
 };
 let FILTROS_DIPLOMAS = {
@@ -111,6 +135,8 @@ let FILTROS_DIPLOMAS = {
   busqueda: "",
 };
 let autoRefreshTimer = null;
+let EXPORTAR_SOLO_FILTRADO_SEG = true;
+let EXPORTAR_SOLO_FILTRADO_DIP = true;
 
 /* =========================================================================
    HELPERS
@@ -222,11 +248,13 @@ function getAllItems() {
     const hoja = RAW_DATA[sheetName];
     if (!hoja) return;
     hoja.rows.forEach((row) => {
+      const titulo = getTitulo(row, sheetName);
       items.push({
         sheet: sheetName,
         etapa: getEtapa(row),
-        titulo: getTitulo(row, sheetName),
+        titulo: titulo,
         eje: getEje(row),
+        anio: getAnio(row, titulo),
         row: row,
       });
     });
@@ -239,6 +267,7 @@ function getItemsFiltrados() {
   if (FILTROS.hoja !== "TODAS") items = items.filter((i) => i.sheet === FILTROS.hoja);
   if (FILTROS.eje !== "TODOS") items = items.filter((i) => i.eje === FILTROS.eje);
   if (FILTROS.etapas.length > 0) items = items.filter((i) => FILTROS.etapas.includes(i.etapa.id));
+  if (FILTROS.anios.length > 0) items = items.filter((i) => FILTROS.anios.includes(i.anio));
   if (FILTROS.busqueda.trim() !== "") {
     const q = normaliza(FILTROS.busqueda);
     items = items.filter((i) => normaliza(i.titulo).includes(q));
@@ -284,6 +313,19 @@ function getEjesUnicos() {
   const set = new Set();
   getAllItems().forEach((i) => set.add(i.eje));
   return Array.from(set).filter(Boolean).sort();
+}
+
+function getAniosUnicos() {
+  const set = new Set();
+  getAllItems().forEach((i) => set.add(i.anio));
+  const arr = Array.from(set).filter(Boolean);
+  // Años más recientes primero, "Sin fecha" siempre al final
+  arr.sort((a, b) => {
+    if (a === SIN_FECHA) return 1;
+    if (b === SIN_FECHA) return -1;
+    return Number(b) - Number(a);
+  });
+  return arr;
 }
 
 /* =========================================================================
@@ -355,6 +397,7 @@ function renderBarrasEjes(porEje, total) {
 
 function renderFiltros() {
   const ejes = getEjesUnicos();
+  const anios = getAniosUnicos();
   const html = `
     <div class="filter-group" style="flex:2; min-width:220px;">
       <label>Buscar proyecto</label>
@@ -382,6 +425,15 @@ function renderFiltros() {
         ${ETAPAS.map((e) => {
           const activa = FILTROS.etapas.includes(e.id);
           return `<span class="pill ${activa?'active':''}" data-etapa="${e.id}" style="${activa?`background:${e.color};border-color:${e.color};`:''}">${e.nombre}</span>`;
+        }).join("")}
+      </div>
+    </div>
+    <div class="filter-group" style="min-width:320px;">
+      <label>Año <span style="text-transform:none; font-weight:400; opacity:0.7;">(elegí uno o varios)</span></label>
+      <div class="filter-pills" id="f-anios">
+        ${anios.map((a) => {
+          const activa = FILTROS.anios.includes(a);
+          return `<span class="pill ${activa?'active':''}" data-anio="${a}">${a}</span>`;
         }).join("")}
       </div>
     </div>
@@ -413,8 +465,20 @@ function renderFiltros() {
       renderFiltros(); renderOverview(); renderKanban(); renderTabla();
     });
   });
+  document.querySelectorAll("#f-anios .pill").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      const anio = pill.dataset.anio;
+      const idx = FILTROS.anios.indexOf(anio);
+      if (idx === -1) {
+        FILTROS.anios.push(anio);
+      } else {
+        FILTROS.anios.splice(idx, 1);
+      }
+      renderFiltros(); renderOverview(); renderKanban(); renderTabla();
+    });
+  });
   document.getElementById("f-clear").addEventListener("click", () => {
-    FILTROS = { hoja: "TODAS", eje: "TODOS", etapas: [], busqueda: "" };
+    FILTROS = { hoja: "TODAS", eje: "TODOS", etapas: [], anios: [], busqueda: "" };
     renderAll();
   });
 }
@@ -460,6 +524,7 @@ function renderCard(item) {
 }
 
 function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
   return String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 }
 
@@ -710,6 +775,136 @@ function renderCardDiploma(item) {
 }
 
 /* =========================================================================
+   EXPORTAR: Excel y PDF
+   ========================================================================= */
+
+function renderExportBarSeguimiento() {
+  const el = document.getElementById("export-bar-seguimiento");
+  if (!el) return;
+  el.innerHTML = `
+    <label class="export-checkbox">
+      <input type="checkbox" id="exp-seg-filtrado" ${EXPORTAR_SOLO_FILTRADO_SEG ? "checked" : ""}>
+      Exportar solo lo filtrado (si no, exporta todo)
+    </label>
+    <button class="export-btn excel" id="exp-seg-excel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      Exportar a Excel
+    </button>
+    <button class="export-btn pdf" id="exp-seg-pdf">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      Exportar a PDF
+    </button>
+  `;
+  document.getElementById("exp-seg-filtrado").addEventListener("change", (e) => {
+    EXPORTAR_SOLO_FILTRADO_SEG = e.target.checked;
+  });
+  document.getElementById("exp-seg-excel").addEventListener("click", () => exportarSeguimientoExcel());
+  document.getElementById("exp-seg-pdf").addEventListener("click", () => exportarSeguimientoPDF());
+}
+
+function renderExportBarDiplomas() {
+  const el = document.getElementById("export-bar-diplomas");
+  if (!el) return;
+  el.innerHTML = `
+    <label class="export-checkbox">
+      <input type="checkbox" id="exp-dip-filtrado" ${EXPORTAR_SOLO_FILTRADO_DIP ? "checked" : ""}>
+      Exportar solo lo filtrado (si no, exporta todo)
+    </label>
+    <button class="export-btn excel" id="exp-dip-excel">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      Exportar a Excel
+    </button>
+    <button class="export-btn pdf" id="exp-dip-pdf">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      Exportar a PDF
+    </button>
+  `;
+  document.getElementById("exp-dip-filtrado").addEventListener("change", (e) => {
+    EXPORTAR_SOLO_FILTRADO_DIP = e.target.checked;
+  });
+  document.getElementById("exp-dip-excel").addEventListener("click", () => exportarDiplomasExcel());
+  document.getElementById("exp-dip-pdf").addEventListener("click", () => exportarDiplomasPDF());
+}
+
+// Devuelve { headers, rows } listos para exportar de la vista Seguimiento,
+// respetando si hay una sola hoja seleccionada o "todas" (igual que renderTabla).
+function getDatosExportSeguimiento() {
+  const items = EXPORTAR_SOLO_FILTRADO_SEG ? getItemsFiltrados() : getAllItems();
+  if (FILTROS.hoja !== "TODAS" && RAW_DATA[FILTROS.hoja]) {
+    const headers = RAW_DATA[FILTROS.hoja].headers;
+    const rows = items.map((item) => headers.map((h) => item.row[h] ?? ""));
+    return { headers: [...headers, "Etapa"], rows: items.map((item, idx) => [...rows[idx], item.etapa.nombre]) };
+  }
+  const headers = ["Hoja", "Proyecto / Declaración", "Eje de trabajo", "Año", "Etapa"];
+  const rows = items.map((item) => [
+    HOJAS_CONFIG[item.sheet].etiqueta, item.titulo, item.eje, item.anio, item.etapa.nombre,
+  ]);
+  return { headers, rows };
+}
+
+function getDatosExportDiplomas() {
+  const items = EXPORTAR_SOLO_FILTRADO_DIP ? getItemsDiplomasFiltrados() : getAllItemsDiplomas();
+  const headers = ["Declaración", "Eje de trabajo", "Estado del diploma"];
+  const rows = items.map((item) => [item.titulo, item.eje, item.diplomaCategoria.nombre]);
+  return { headers, rows };
+}
+
+// Genera y descarga un .xlsx en el navegador usando SheetJS (cargado vía CDN).
+function descargarExcel(headers, rows, nombreArchivo) {
+  if (typeof XLSX === "undefined") {
+    showToast("No se pudo cargar la librería de Excel. Revisá tu conexión a internet.", true);
+    return;
+  }
+  const data = [headers, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws["!cols"] = headers.map(() => ({ wch: 28 }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Datos");
+  XLSX.writeFile(wb, nombreArchivo);
+  showToast("Excel descargado ✓");
+}
+
+function exportarSeguimientoExcel() {
+  const { headers, rows } = getDatosExportSeguimiento();
+  if (!rows.length) { showToast("No hay datos para exportar con estos filtros.", true); return; }
+  descargarExcel(headers, rows, "seguimiento_proyectos.xlsx");
+}
+
+function exportarDiplomasExcel() {
+  const { headers, rows } = getDatosExportDiplomas();
+  if (!rows.length) { showToast("No hay datos para exportar con estos filtros.", true); return; }
+  descargarExcel(headers, rows, "diplomas.xlsx");
+}
+
+// Arma una tabla HTML dentro de #print-area y dispara el diálogo de impresión
+// del navegador (la persona elige "Guardar como PDF" ahí).
+function imprimirComoPDF(titulo, headers, rows) {
+  const printArea = document.getElementById("print-area");
+  const fecha = new Date().toLocaleString("es-AR");
+  printArea.innerHTML = `
+    <h1>${escapeHtml(titulo)}</h1>
+    <div class="print-meta">Generado el ${fecha} · ${rows.length} resultado${rows.length === 1 ? "" : "s"}</div>
+    <table>
+      <thead><tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr></thead>
+      <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`).join("")}</tbody>
+    </table>
+  `;
+  window.print();
+}
+
+function exportarSeguimientoPDF() {
+  const { headers, rows } = getDatosExportSeguimiento();
+  if (!rows.length) { showToast("No hay datos para exportar con estos filtros.", true); return; }
+  imprimirComoPDF("Seguimiento Proyectos Emmanuel Ferrario", headers, rows);
+}
+
+function exportarDiplomasPDF() {
+  const { headers, rows } = getDatosExportDiplomas();
+  if (!rows.length) { showToast("No hay datos para exportar con estos filtros.", true); return; }
+  imprimirComoPDF("Entrega de diplomas — Declaraciones de Interés aprobadas", headers, rows);
+}
+
+/* =========================================================================
    RENDER ALL
    ========================================================================= */
 
@@ -721,9 +916,11 @@ function renderAll() {
     renderKanban();
     renderSheetTabs();
     renderTabla();
+    renderExportBarSeguimiento();
   } else {
     renderFiltrosDiplomas();
     renderKanbanDiplomas();
+    renderExportBarDiplomas();
   }
 }
 

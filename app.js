@@ -18,28 +18,39 @@ const COL = {
   aprobado: "¿Se aprobó en el recinto?",
   eje: "¿Con qué eje de trabajo se vincula?",
   diploma: "¿Pedimos el diploma?",
-  fecha: "¿En qué fecha?",
+  fechaIngreso: "¿Fecha ingreso?",
+  fechaAprobacion: "¿Fecha de aprobación?",
 };
 
 // Valor especial para agrupar los proyectos sin año detectable.
 const SIN_FECHA = "Sin fecha";
 
+// Convierte un valor de celda en un año válido (string), o null si no se puede.
+function parsearAnio(valorCelda) {
+  if (!valorCelda) return null;
+  const fecha = new Date(valorCelda);
+  if (isNaN(fecha.getTime())) return null;
+  const anio = fecha.getFullYear();
+  if (anio <= 1990 || anio >= 2100) return null;
+  return String(anio);
+}
+
 // Saca el año de un proyecto con esta prioridad:
-// 1) la columna de fecha real, si tiene un valor parseable
-// 2) el año dentro del número de expediente en el título (ej. "2431-D-2024")
-// 3) si no hay ninguno de los dos, "Sin fecha"
+// 1) Fecha de aprobación
+// 2) Fecha de ingreso
+// 3) el año dentro del número de expediente en el título (ej. "2431-D-2024")
+// 4) si no hay ninguno de los anteriores, "Sin fecha"
 function getAnio(row, titulo) {
-  const fechaRaw = row[COL.fecha];
-  if (fechaRaw) {
-    const fecha = new Date(fechaRaw);
-    if (!isNaN(fecha.getTime())) {
-      const anio = fecha.getFullYear();
-      if (anio > 1990 && anio < 2100) return String(anio);
-    }
-  }
+  const anioAprobacion = parsearAnio(row[COL.fechaAprobacion]);
+  if (anioAprobacion) return anioAprobacion;
+
+  const anioIngreso = parsearAnio(row[COL.fechaIngreso]);
+  if (anioIngreso) return anioIngreso;
+
   // Buscamos un patrón de expediente tipo NNNN-D-AAAA o NNNN-P-AAAA en el título
   const match = String(titulo || "").match(/\d+-[A-Za-z]-(\d{4})/);
   if (match) return match[1];
+
   return SIN_FECHA;
 }
 
@@ -404,9 +415,9 @@ function renderFiltros() {
       <input type="text" id="f-busqueda" placeholder="Escribí un nombre o expediente…" value="${FILTROS.busqueda.replace(/"/g,'&quot;')}">
     </div>
     <div class="filter-group">
-      <label>Hoja</label>
+      <label>Tipo de proyecto</label>
       <select id="f-hoja">
-        <option value="TODAS">Todas las hojas</option>
+        <option value="TODAS">Todos los tipos de proyecto</option>
         ${Object.entries(HOJAS_CONFIG).map(([key, cfg]) =>
           `<option value="${key}" ${FILTROS.hoja===key?"selected":""}>${cfg.etiqueta}</option>`
         ).join("")}
@@ -637,7 +648,7 @@ function renderTabla() {
       }).join("") + `<td>${statusChip(item.etapa)}</td></tr>`;
     }).join("") || `<tr><td colspan="${headers.length+1}"><div class="empty-state">No hay resultados con estos filtros.</div></td></tr>`;
   } else {
-    head.innerHTML = `<tr><th>Hoja</th><th>Proyecto / Declaración</th><th>Eje de trabajo</th><th>Etapa</th></tr>`;
+    head.innerHTML = `<tr><th>Tipo de proyecto</th><th>Proyecto / Declaración</th><th>Eje de trabajo</th><th>Etapa</th></tr>`;
     body.innerHTML = items.map((item) => `
       <tr>
         <td>${HOJAS_CONFIG[item.sheet].etiqueta}</td>
@@ -835,7 +846,7 @@ function getDatosExportSeguimiento() {
     const rows = items.map((item) => headers.map((h) => item.row[h] ?? ""));
     return { headers: [...headers, "Etapa"], rows: items.map((item, idx) => [...rows[idx], item.etapa.nombre]) };
   }
-  const headers = ["Hoja", "Proyecto / Declaración", "Eje de trabajo", "Año", "Etapa"];
+  const headers = ["Tipo de proyecto", "Proyecto / Declaración", "Eje de trabajo", "Año", "Etapa"];
   const rows = items.map((item) => [
     HOJAS_CONFIG[item.sheet].etiqueta, item.titulo, item.eje, item.anio, item.etapa.nombre,
   ]);
